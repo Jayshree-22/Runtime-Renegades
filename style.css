@@ -1,0 +1,62 @@
+body {
+    background-image: url('brown.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    height: 100vh;
+    margin: 0;
+}
+
+img {
+    margin-top: 20px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+button {
+    margin-top: 15px;
+}
+
+.logo {
+    position: fixed;   /* stays in top-left even when scrolling */
+    top: 10px;
+    left: 10px;
+    width: 50px;       /* adjust size */
+    height: auto;
+}
+
+.navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;   /* THIS is the key for vertical alignment */
+    padding: 10px 20px;
+    gap: 10px;             /* space between logo & text */
+}
+
+.logo {
+    width: 45px;
+    height: auto;
+    position: relative;
+    top: -10px;
+    margin-left: -10px;
+    border-radius: 15px;
+}
+
+.site-name {
+    font-size: 24px;
+    font-weight: bold;
+    color: brown;          /* matches your theme */
+    margin: 10px;             /* remove any default spacing */
+    position: relative;
+    top: 2px;
+    margin-left: 10px;
+    font-family: 'Iceberg', sans-serif;
+    letter-spacing: 2px;
+}
+
+
+body {
+    margin-top: 80px;
+}

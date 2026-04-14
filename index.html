@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>XYZ - Content DNA</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Iceberg&display=swap" rel="stylesheet">
+</head>
+<body style="font-family: Arial; text-align: center; margin-top: 50px;">
+
+    
+    <h2>Upload Image</h2>
+
+    <input type="file" id="fileInput" />
+    <br><br>
+<img id="preview" width="300" style="display:none; border-radius:10px;" />
+
+    <p id="result"></p>
+
+
+    <script>
+        async function uploadImage() {
+            const fileInput = document.getElementById("fileInput");
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert("Please select a file");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const response = await fetch("/upload", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+
+            document.getElementById("result").innerText =
+                "Uploaded: " + data.filename;
+        }
+    </script>
+    <button id="uploadBtn" onclick="uploadImage()" style="display:none;">
+    Upload
+</button>
+
+<div class="navbar">
+    <img src="/static/logo.jpg" class="logo">
+    <span class="site-name">MEDIATRACE-AI</span>
+</div>
+
+
+
+
+<script src="/static/script.js"></script>
+</body>
+</html>
