@@ -1,1 +1,3 @@
-
+uploads/
+hashes.db
+__pycache__/
