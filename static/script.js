@@ -1,22 +1,30 @@
+
 const fileInput = document.getElementById("fileInput");
 const preview = document.getElementById("preview");
 const uploadBtn = document.getElementById("uploadBtn");
+const result = document.getElementById("result");
 
-// When file selected
+console.log("JS LOADED ✅");
+
+// Show preview + button
 fileInput.addEventListener("change", function () {
     const file = fileInput.files[0];
 
     if (file) {
-        // Show preview
         preview.src = URL.createObjectURL(file);
         preview.style.display = "block";
-
-        // Show upload button
         uploadBtn.style.display = "inline-block";
+        result.innerText = "";
     }
 });
 
+// ✅ Attach button click properly
+uploadBtn.addEventListener("click", uploadImage);
+
+// Upload function
 async function uploadImage() {
+    console.log("UPLOAD FUNCTION CALLED 🚀");
+
     const file = fileInput.files[0];
 
     if (!file) {
@@ -27,13 +35,34 @@ async function uploadImage() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const response = await fetch("/upload", {
-        method: "POST",
-        body: formData
-    });
+    try {
+        const response = await fetch("/upload", {
+            method: "POST",
+            body: formData
+        });
 
-    const data = await response.json();
+        const data = await response.json();
 
-    document.getElementById("result").innerText =
-    "Uploaded: " + data.filename;
+        console.log(data);
+
+        if (data.error) {
+            result.innerText = "❌ " + data.error;
+        } 
+        else if (data.message && data.message.includes("Duplicate")) {
+            result.innerText =
+                "⚠️ Duplicate Image Detected\n" +
+                "Matched with: " + data.matched_with + "\n" +
+                "Difference: " + data.difference;
+        } 
+        else {
+            result.innerText =
+                "✅ No Duplicate Found\n" +
+                "File: " + data.filename + "\n" +
+                "Hash: " + data.phash;
+        }
+
+    } catch (err) {
+        console.error(err);
+        result.innerText = "❌ Duplicate Image Detected";
+    }
 }
