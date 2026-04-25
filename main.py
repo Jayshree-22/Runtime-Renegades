@@ -10,10 +10,12 @@ import sqlite3
 
 app = FastAPI()
 
+THRESHOLD = 5  # Sensitivity for duplicate detection
+
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Serve uploaded images (optional but useful)
+# Serve uploaded images
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Create uploads folder
@@ -43,7 +45,15 @@ init_db()
 def serve_ui():
     return FileResponse("static/index.html")
 
-# Upload endpoint with hashing
+@app.get("/about")
+def serve_about():
+    return FileResponse("static/about.html")
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse("favicon.ico")
+
+# Upload endpoint with duplicate detection
 @app.post("/upload")
 async def upload_image(file: UploadFile = File(...)):
 
@@ -51,23 +61,51 @@ async def upload_image(file: UploadFile = File(...)):
     unique_name = f"{uuid.uuid4()}_{file.filename}"
     file_path = os.path.join(UPLOAD_FOLDER, unique_name)
 
-    # Save file
+    # Save file temporarily
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Open image
+    # Open and process image
     try:
         image = Image.open(file_path)
+        image = image.convert("L")          # Convert to grayscale
+        image = image.resize((256, 256))   # Normalize size
     except Exception:
+        os.remove(file_path)
         return {"error": "Invalid image file"}
 
-    # Generate perceptual hash (pHash)
+    # Generate perceptual hash
     phash = str(imagehash.phash(image))
 
-    # Store in database
+    # Connect to database
     conn = sqlite3.connect("hashes.db")
     cursor = conn.cursor()
 
+    # Convert new hash
+    new_hash = imagehash.hex_to_hash(phash)
+
+    # Fetch all stored hashes
+    cursor.execute("SELECT filename, phash FROM images")
+    rows = cursor.fetchall()
+
+    # Compare with existing images
+    for db_filename, db_phash in rows:
+        existing_hash = imagehash.hex_to_hash(db_phash)
+        difference = new_hash - existing_hash
+
+        if difference <= THRESHOLD:
+            conn.close()
+
+            # ❗ Delete duplicate file
+            os.remove(file_path)
+
+            return {
+                "message": "Duplicate image detected ⚠️",
+                "matched_with": db_filename,
+                "difference": difference
+            }
+
+    # If no duplicate found → store in DB
     cursor.execute(
         "INSERT INTO images (filename, phash) VALUES (?, ?)",
         (unique_name, phash)
