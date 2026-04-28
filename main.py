@@ -1,121 +1,131 @@
+
 from fastapi import FastAPI, UploadFile, File
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import shutil
-import os
-import uuid
+from fastapi.responses import FileResponse, JSONResponse
+import os, shutil, uuid, sqlite3
 from PIL import Image
 import imagehash
-import sqlite3
 
 app = FastAPI()
 
-THRESHOLD = 5  # Sensitivity for duplicate detection
-
-# Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Serve uploaded images
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-# Create uploads folder
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize database
+# ✅ IMPORTANT: serve static + uploaded images
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+DB_PATH = "hashes.db"
+
+# -----------------------
+# INIT DB
+# -----------------------
 def init_db():
-    conn = sqlite3.connect("hashes.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS images (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        filename TEXT,
-        phash TEXT
-    )
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT,
+            phash TEXT
+        )
     """)
-
     conn.commit()
     conn.close()
 
 init_db()
 
-# Serve frontend
+# -----------------------
+# ROUTES
+# -----------------------
 @app.get("/")
-def serve_ui():
+def home():
     return FileResponse("static/index.html")
 
 @app.get("/about")
-def serve_about():
+def about():
     return FileResponse("static/about.html")
 
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    return FileResponse("favicon.ico")
-
-# Upload endpoint with duplicate detection
+# -----------------------
+# UPLOAD
+# -----------------------
 @app.post("/upload")
-async def upload_image(file: UploadFile = File(...)):
-
-    # Generate unique filename
-    unique_name = f"{uuid.uuid4()}_{file.filename}"
-    file_path = os.path.join(UPLOAD_FOLDER, unique_name)
-
-    # Save file temporarily
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Open and process image
+async def upload(file: UploadFile = File(...)):
     try:
-        image = Image.open(file_path)
-        image = image.convert("L")          # Convert to grayscale
-        image = image.resize((256, 256))   # Normalize size
-    except Exception:
-        os.remove(file_path)
-        return {"error": "Invalid image file"}
+        print("UPLOAD HIT ✅")
 
-    # Generate perceptual hash
-    phash = str(imagehash.phash(image))
+        # Save file
+        filename = f"{uuid.uuid4()}_{file.filename}"
+        path = os.path.join(UPLOAD_FOLDER, filename)
 
-    # Connect to database
-    conn = sqlite3.connect("hashes.db")
-    cursor = conn.cursor()
+        with open(path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-    # Convert new hash
-    new_hash = imagehash.hex_to_hash(phash)
+        # Process image
+        image = Image.open(path).convert("RGB")
+        new_hash = imagehash.phash(image)
 
-    # Fetch all stored hashes
-    cursor.execute("SELECT filename, phash FROM images")
-    rows = cursor.fetchall()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
 
-    # Compare with existing images
-    for db_filename, db_phash in rows:
-        existing_hash = imagehash.hex_to_hash(db_phash)
-        difference = new_hash - existing_hash
+        c.execute("SELECT filename, phash FROM images")
+        rows = c.fetchall()
 
-        if difference <= THRESHOLD:
-            conn.close()
+        matches = []
 
-            # ❗ Delete duplicate file
-            os.remove(file_path)
+        for db_file, db_hash in rows:
+            try:
+                old_hash = imagehash.hex_to_hash(db_hash)
+                diff = new_hash - old_hash
+                score = 1 - (diff / 64)
 
-            return {
-                "message": "Duplicate image detected ⚠️",
-                "matched_with": db_filename,
-                "difference": difference
+                matches.append({
+                    "filename": db_file,
+                    "score": float(score)
+                })
+
+            except Exception as e:
+                print("Skip:", e)
+
+        matches.sort(key=lambda x: x["score"], reverse=True)
+
+        # -----------------------
+        # DECIDE RESULT
+        # -----------------------
+        if len(matches) == 0:
+            result = {
+                "status": "no_data",
+                "message": "Upload another image to compare"
+            }
+        else:
+            top = matches[0]
+
+            if top["score"] > 0.9:
+                status = "same"
+                message = "🟢 Exact Same Image"
+            elif top["score"] > 0.75:
+                status = "similar"
+                message = "🟡 Similar / Edited Image"
+            else:
+                status = "different"
+                message = "🔴 Completely Different Image"
+
+            result = {
+                "status": status,
+                "message": message,
+                "match": top
             }
 
-    # If no duplicate found → store in DB
-    cursor.execute(
-        "INSERT INTO images (filename, phash) VALUES (?, ?)",
-        (unique_name, phash)
-    )
+        # Save AFTER comparing
+        c.execute(
+            "INSERT INTO images (filename, phash) VALUES (?, ?)",
+            (filename, str(new_hash))
+        )
+        conn.commit()
+        conn.close()
 
-    conn.commit()
-    conn.close()
+        return JSONResponse(result)
 
-    return {
-        "filename": unique_name,
-        "phash": phash,
-        "message": "Upload + hash stored ✅"
-    }
+    except Exception as e:
+        print("ERROR:", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
